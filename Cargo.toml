@@ -1,0 +1,15 @@
+[package]
+name = "waveshare_display"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+esp-hal = { version = "1.1.1", features = ["esp32c6", "unstable"] }
+
+embedded-graphics = "0.8.2"
+embedded-hal = "1.0.0"
+embedded-hal-bus = "0.3.0"
+
+mipidsi = "0.10.0"
+
+static_cell = "2.1.1"

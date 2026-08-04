@@ -1,0 +1,1 @@
+ **Waveshare ESP32-C6-LCD-1.47** display init code shared among few mini projects
