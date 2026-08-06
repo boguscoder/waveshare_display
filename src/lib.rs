@@ -10,10 +10,7 @@ use embedded_hal::delay::DelayNs;
 use embedded_hal_bus::spi::ExclusiveDevice;
 use esp_hal::{
     delay::Delay,
-    gpio::{AnyPin, Level, Output, OutputConfig, Pin},
-    ledc::{
-        LSGlobalClkSource, Ledc, LowSpeed, channel, channel::ChannelIFace, timer, timer::TimerIFace,
-    },
+    gpio::{AnyPin, Level, Output, OutputConfig},
     spi::master::{Config as SpiConfig, Spi},
 };
 use mipidsi::{
@@ -68,51 +65,9 @@ pub struct DisplayConfig<'d> {
     pub cs: AnyPin<'d>,
     pub dc: AnyPin<'d>,
     pub rst: AnyPin<'d>,
-    pub bl: AnyPin<'d>,
-    pub ledc: esp_hal::peripherals::LEDC<'d>,
-    pub backlight_duty: u8,
-}
-
-static mut BACKLIGHT_CHANNEL: Option<channel::Channel<'static, LowSpeed>> = None;
-
-pub fn set_backlight(duty: u8) {
-    unsafe {
-        let channel_ptr = &raw mut BACKLIGHT_CHANNEL;
-        if let Some(channel) = (*channel_ptr).as_mut() {
-            let _ = channel.set_duty(duty);
-        }
-    }
 }
 
 pub fn init_display<'d>(config: DisplayConfig<'d>, delay: &mut Delay) -> Display<'d> {
-    let mut ledc = Ledc::new(config.ledc);
-    ledc.set_global_slow_clock(LSGlobalClkSource::APBClk);
-
-    let mut timer = ledc.timer::<LowSpeed>(timer::Number::Timer0);
-    timer
-        .configure(timer::config::Config {
-            duty: timer::config::Duty::Duty8Bit,
-            clock_source: timer::LSClockSource::APBClk,
-            frequency: esp_hal::time::Rate::from_khz(5),
-        })
-        .unwrap();
-
-    let mut channel = ledc.channel::<LowSpeed>(
-        channel::Number::Channel0,
-        config.bl.degrade().into_output_signal(),
-    );
-    channel
-        .configure(channel::config::Config {
-            timer: &timer,
-            duty_pct: config.backlight_duty,
-            drive_mode: esp_hal::gpio::DriveMode::PushPull,
-        })
-        .unwrap();
-
-    unsafe {
-        BACKLIGHT_CHANNEL = Some(core::mem::transmute_copy(&channel));
-    }
-
     let mut rst = Output::new(config.rst, Level::Low, OutputConfig::default());
     delay.delay_ms(100u32);
     rst.set_high();
@@ -144,4 +99,57 @@ pub fn init_display<'d>(config: DisplayConfig<'d>, delay: &mut Delay) -> Display
     display.clear(Rgb565::BLACK).unwrap();
 
     display
+}
+
+#[doc(hidden)]
+pub use esp_hal as _esp_hal;
+#[doc(hidden)]
+pub use static_cell as _static_cell;
+
+#[macro_export]
+macro_rules! setup_backlight {
+    ($ledc_peripheral:expr, $bl_pin:expr, $channel_name:ident) => {
+        let $channel_name = {
+            use $crate::_esp_hal::ledc::channel::ChannelIFace as _;
+            use $crate::_esp_hal::ledc::timer::TimerIFace as _;
+
+            static LEDC_CELL: $crate::_static_cell::StaticCell<
+                $crate::_esp_hal::ledc::Ledc<'static>,
+            > = $crate::_static_cell::StaticCell::new();
+            let ledc = LEDC_CELL.init($crate::_esp_hal::ledc::Ledc::new($ledc_peripheral));
+
+            ledc.set_global_slow_clock($crate::_esp_hal::ledc::LSGlobalClkSource::APBClk);
+
+            static TIMER_CELL: $crate::_static_cell::StaticCell<
+                $crate::_esp_hal::ledc::timer::Timer<'static, $crate::_esp_hal::ledc::LowSpeed>,
+            > = $crate::_static_cell::StaticCell::new();
+
+            let mut t = ledc.timer::<$crate::_esp_hal::ledc::LowSpeed>(
+                $crate::_esp_hal::ledc::timer::Number::Timer0,
+            );
+            t.configure($crate::_esp_hal::ledc::timer::config::Config {
+                duty: $crate::_esp_hal::ledc::timer::config::Duty::Duty8Bit,
+                clock_source: $crate::_esp_hal::ledc::timer::LSClockSource::APBClk,
+                frequency: $crate::_esp_hal::time::Rate::from_khz(5),
+            })
+            .unwrap();
+
+            let timer = TIMER_CELL.init(t);
+
+            let mut channel = ledc.channel::<$crate::_esp_hal::ledc::LowSpeed>(
+                $crate::_esp_hal::ledc::channel::Number::Channel0,
+                $bl_pin,
+            );
+
+            channel
+                .configure($crate::_esp_hal::ledc::channel::config::Config {
+                    timer: &*timer,
+                    duty_pct: 50,
+                    drive_mode: $crate::_esp_hal::gpio::DriveMode::PushPull,
+                })
+                .unwrap();
+
+            channel
+        };
+    };
 }
