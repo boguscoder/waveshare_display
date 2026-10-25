@@ -67,7 +67,8 @@ pub struct DisplayConfig<'d> {
     pub rst: AnyPin<'d>,
 }
 
-pub fn init_display<'d>(config: DisplayConfig<'d>, delay: &mut Delay) -> Display<'d> {
+pub fn init_display<'d>(config: DisplayConfig<'d>) -> Display<'d> {
+    let mut delay = Delay::new();
     let mut rst = Output::new(config.rst, Level::Low, OutputConfig::default());
     delay.delay_ms(100u32);
     rst.set_high();
@@ -90,7 +91,7 @@ pub fn init_display<'d>(config: DisplayConfig<'d>, delay: &mut Delay) -> Display
         .display_offset(0, 0)
         .invert_colors(ColorInversion::Inverted)
         .reset_pin(rst)
-        .init(delay)
+        .init(&mut delay)
         .unwrap();
 
     display
@@ -108,7 +109,7 @@ pub use static_cell as _static_cell;
 
 #[macro_export]
 macro_rules! setup_backlight {
-    ($ledc_peripheral:expr, $bl_pin:expr, $channel_name:ident) => {
+    ($ledc_peripheral:expr, $bl_pin:expr, $channel_name:ident $(, $duty_pct:expr)?) => {
         let $channel_name = {
             use $crate::_esp_hal::ledc::channel::ChannelIFace as _;
             use $crate::_esp_hal::ledc::timer::TimerIFace as _;
@@ -149,7 +150,23 @@ macro_rules! setup_backlight {
                 })
                 .unwrap();
 
+            $(channel.set_duty($duty_pct).unwrap();)?
+
             channel
         };
+    };
+}
+
+#[macro_export]
+macro_rules! init_display {
+    (peripherals: $p:expr) => {
+        $crate::init_display($crate::DisplayConfig {
+            spi: $p.SPI2,
+            mosi: $p.GPIO6.into(),
+            sclk: $p.GPIO7.into(),
+            cs: $p.GPIO14.into(),
+            dc: $p.GPIO15.into(),
+            rst: $p.GPIO21.into(),
+        })
     };
 }
